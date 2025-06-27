@@ -9,7 +9,7 @@ import SimulationCanvas from "@/components/simulation/SimulationCanvas";
 import EditModeDescription from "@/components/simulation/EditModeDescription";
 import ControlPanelContent from "@/components/simulation/ControlPanelContent";
 import MetricsPanelContent from "@/components/simulation/MetricsPanelContent";
-import { calculateDistance, findNearestNode, getAllNodes } from "@/lib/helper";
+import { calculateDistance, findNearestNode, getAllNodes, calculateLatency, clearLatencyCache } from "@/lib/helper";
 import { CentralNode, EdgeNode, UserNode } from "./lib/components";
 
 export default function Component() {
@@ -120,83 +120,12 @@ export default function Component() {
     ];
   };
 
-  // Calculate latency based on connection using experimental formula
-  const calculateLatency = (user, nodeId, nodeType) => {
-    let targetNode = null;
-    if (nodeType === "edge") {
-      targetNode = edgeNodes.find((edge) => edge.id === nodeId);
-    } else if (nodeType === "central") {
-      targetNode = centralNodes.find((central) => central.id === nodeId);
-    }
-
-    if (!targetNode) return 100 + Math.random() * 50;
-
-    // Generate random data size s(u,t) in range [100, 500] MB
-    const dataSize = 100 + Math.random() * 400; // MB
-    
-    // Determine if it's Cold Start or Warm Start
-    const isWarmStart = targetNode.isWarm || false; // I_{u,v,t}
-    const coldStartIndicator = isWarmStart ? 1 : 0;
-    
-    // Calculate Communication Delay: d_com = s(u,t) × τ(v_u,t, v)
-    let unitTransmissionDelay; // τ (ms/MB)
-    if (nodeType === "edge") {
-      // Between APs: [0.2, 1] ms/MB
-      unitTransmissionDelay = 0.2 + Math.random() * 0.8;
-    } else {
-      // To Cloud: [2, 10] ms/MB  
-      unitTransmissionDelay = 2 + Math.random() * 8;
-    }
-    const communicationDelay = dataSize * unitTransmissionDelay;
-    
-    // Calculate Processing Delay: d_proc = (1 - I_{u,v,t}) × d_cold + s(u,t) × ρ_{u,v}
-    
-    // Cold start delay [100, 500] ms
-    const coldStartDelay = 100 + Math.random() * 400;
-    
-    // Unit processing time ρ_{u,v} (ms/MB)
-    let unitProcessingTime;
-    if (nodeType === "edge") {
-      // Cloudlet: [0.5, 2] ms/MB
-      unitProcessingTime = 0.5 + Math.random() * 1.5;
-    } else {
-      // Cloud: 0.05 ms/MB
-      unitProcessingTime = 0.05;
-    }
-    
-    const processingDelay = (1 - coldStartIndicator) * coldStartDelay + dataSize * unitProcessingTime;
-    
-    // Total Service Delay: D(u,v,t) = d_com + d_proc
-    const totalLatency = communicationDelay + processingDelay;
-    
-    // Mark node as warm for next requests (simulating container reuse)
-    if (targetNode) {
-      targetNode.isWarm = true;
-      targetNode.lastAccessTime = Date.now();
-    }
-    
-    // Store additional metrics for debugging/display
-    if (targetNode) {
-      targetNode.lastMetrics = {
-        dataSize: Math.round(dataSize),
-        communicationDelay: Math.round(communicationDelay),
-        processingDelay: Math.round(processingDelay),
-        isWarmStart: isWarmStart,
-        unitTransmissionDelay: unitTransmissionDelay.toFixed(3),
-        unitProcessingTime: unitProcessingTime.toFixed(3)
-      };
-    }
-    
-    return Math.round(totalLatency);
-  };
-
   // Manually connect user to a specific node
   const connectUserToNode = (userId, nodeId, nodeType) => {
-    const allNodes = getAllNodes(edgeNodes, centralNodes);
     setUsers((prevUsers) =>
       prevUsers.map((user) => {
         if (user.id === userId) {
-          const latency = calculateLatency(user, nodeId, allNodes);
+          const latency = calculateLatency(user, nodeId, nodeType, edgeNodes, centralNodes);
           return {
             ...user,
             assignedEdge: nodeType === "edge" ? nodeId : null,
@@ -378,10 +307,9 @@ export default function Component() {
 
   // Optimize replica placement based on predictions
   const optimizeReplicaPlacement = useCallback(() => {
-    if (!predictionEnabled) return;
-
+    // Always update assignments and latency, but only update predictedPath if predictionEnabled
     const updatedUsers = users.map((user) => {
-      const predictedPath = predictUserMobility(user);
+      const predictedPath = predictionEnabled ? predictUserMobility(user) : [];
 
       // Skip automatic assignment if user has manual connection
       if (user.manualConnection || !autoAssignment) {
@@ -400,7 +328,7 @@ export default function Component() {
       let assignedCentral = null;
 
       if (nearestEdge) {
-        const edgeLatency = calculateLatency(user, nearestEdge.id, "edge");
+        const edgeLatency = calculateLatency(user, nearestEdge.id, "edge", edgeNodes, centralNodes);
         if (edgeLatency < bestLatency) {
           bestLatency = edgeLatency;
           assignedEdge = nearestEdge.id;
@@ -409,7 +337,7 @@ export default function Component() {
       }
 
       if (nearestCentral) {
-        const centralLatency = calculateLatency(user, nearestCentral.id, "central");
+        const centralLatency = calculateLatency(user, nearestCentral.id, "central", edgeNodes, centralNodes);
         if (centralLatency < bestLatency) {
           bestLatency = centralLatency;
           assignedEdge = null;
@@ -796,6 +724,17 @@ export default function Component() {
         ctx.lineTo(edge.x, edge.y);
         ctx.stroke();
         ctx.setLineDash([]);
+
+        // Draw latency label above the line (central-edge)
+        const midX = (central.x + edge.x) / 2;
+        const midY = (central.y + edge.y) / 2;
+        const latency = calculateLatency(central, edge.id, "edge", edgeNodes, centralNodes);
+        ctx.save();
+        ctx.font = `${Math.max(10, 12 / zoomLevel)}px sans-serif`;
+        ctx.fillStyle = "#6366f1";
+        ctx.textAlign = "center";
+        ctx.fillText(`${latency} ms`, midX, midY - 10);
+        ctx.restore();
       });
     });
 
@@ -812,6 +751,18 @@ export default function Component() {
         ctx.lineTo(edgeB.x, edgeB.y);
         ctx.stroke();
         ctx.setLineDash([]);
+
+        // Draw latency label above the line
+        const midX = (edgeA.x + edgeB.x) / 2;
+        const midY = (edgeA.y + edgeB.y) / 2;
+        // Use calculateLatency for edge-to-edge (simulate as user at edgeA to edgeB)
+        const latency = calculateLatency(edgeA, edgeB.id, "edge", edgeNodes, centralNodes);
+        ctx.save();
+        ctx.font = `${Math.max(10, 12 / zoomLevel)}px sans-serif`;
+        ctx.fillStyle = "#059669";
+        ctx.textAlign = "center";
+        ctx.fillText(`${latency} ms`, midX, midY - 10);
+        ctx.restore();
       }
     }
 
@@ -1218,21 +1169,25 @@ export default function Component() {
   };
 
   const clearAllUsers = () => {
+    clearLatencyCache();
     setUsers([]);
     setSelectedUser(null);
   };
 
   const clearAllEdgeNodes = () => {
+    clearLatencyCache();
     setEdgeNodes([]);
     setSelectedEdge(null);
   };
 
   const clearAllCentralNodes = () => {
+    clearLatencyCache();
     setCentralNodes([]);
     setSelectedCentral(null);
   };
 
   const clearEverything = () => {
+    clearLatencyCache();
     setUsers([]);
     setEdgeNodes([]);
     setCentralNodes([]);
