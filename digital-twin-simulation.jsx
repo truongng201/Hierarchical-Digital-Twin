@@ -73,56 +73,16 @@ export default function Component() {
 
   // Manually connect user to a specific node
   const connectUserToNode = (userId, nodeId, nodeType) => {
-    // setUsers((prevUsers) =>
-    //   prevUsers.map((user) => {
-    //     if (user.id === userId) {
-    //       const latency = calculateLatency(user, nodeId, nodeType, edgeNodes, centralNodes);
-    //       return {
-    //         ...user,
-    //         assignedEdge: nodeType === "edge" ? nodeId : null,
-    //         assignedCentral: nodeType === "central" ? nodeId : null,
-    //         manualConnection: true,
-    //         latency,
-    //       };
-    //     }
-    //     return user;
-    //   })
-    // );
     alert("This feature is not implemented yet.");
   };
 
   // Disconnect user from all nodes
   const disconnectUser = (userId) => {
     alert("This feature is not implemented yet.");
-    // setUsers((prevUsers) => {
-    //   const newUsers = [];
-    //   for (let i = 0; i < prevUsers.length; i++) {
-    //     const user = prevUsers[i];
-    //     if (user.id === userId) {
-    //       newUsers.push({
-    //         ...user,
-    //         assignedEdge: null,
-    //         assignedCentral: null,
-    //         manualConnection: false,
-    //         latency: 100 + Math.random() * 50,
-    //       });
-    //     } else {
-    //       newUsers.push(user);
-    //     }
-    //   }
-    //   return newUsers;
-    // });
   };
 
   // Reset all manual connections
   const resetAllConnections = () => {
-    // setUsers((prevUsers) => {
-    //   const newUsers = [];
-    //   for (let i = 0; i < prevUsers.length; i++) {
-    //     newUsers.push({ ...prevUsers[i], manualConnection: false });
-    //   }
-    //   return newUsers;
-    // });
     alert("This feature is not implemented yet.");
   };
 
@@ -350,20 +310,19 @@ export default function Component() {
     setSelectedCentral(null);
 
     if (editMode === "none") {
-      const newUser = {
-        id: `user-${Date.now()}`,
-        x: worldX,
-        y: worldY,
-        vx: (Math.random() - 0.5) * userSpeed[0],
-        vy: (Math.random() - 0.5) * userSpeed[0],
-        predictedPath: [],
-        assignedEdge: null,
-        assignedCentral: null,
-        latency: 0,
-        size: userSize[0],
-        manualConnection: false,
-      };
-      setUsers((prev) => [...prev, newUser]);
+      const newUser = new UserNode(
+        `user-${Date.now()}`,
+        worldX,
+        worldY,
+        userSize[0],
+        userSpeed[0],
+        null,
+        []
+      );
+      const updatedGraph = cloneGraph(graph);
+      updatedGraph.addNode(newUser);
+      setGraph(updatedGraph);
+      setUsers(updatedGraph.userNodes);
     }
   };
 
@@ -467,16 +426,8 @@ export default function Component() {
       const newX = worldX - dragOffset.x;
       const newY = worldY - dragOffset.y;
 
-      setUsers((prev) =>
-        prev.map((user) =>
-          user.id === draggedUser.id ? { ...user, x: newX, y: newY } : user
-        )
-      );
-
-      // Update selected user if it's the one being dragged
-      if (selectedUser && selectedUser.id === draggedUser.id) {
-        setSelectedUser((prev) => ({ ...prev, x: newX, y: newY }));
-      }
+      const updatedUser = { ...draggedUser, x: newX, y: newY };
+      setDraggedUser(updatedUser);
     } else if (isDraggingNode && draggedNode) {
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -489,24 +440,8 @@ export default function Component() {
 
       const newX = worldX - dragOffset.x;
       const newY = worldY - dragOffset.y;
-
-      if (draggedNode.type === "edge") {
-        setEdgeNodes((prev) =>
-          prev.map((edge) =>
-            edge.id === draggedNode.node.id
-              ? { ...edge, x: newX, y: newY }
-              : edge
-          )
-        );
-      } else if (draggedNode.type === "central") {
-        setCentralNodes((prev) =>
-          prev.map((central) =>
-            central.id === draggedNode.node.id
-              ? { ...central, x: newX, y: newY }
-              : central
-          )
-        );
-      }
+      const updatedNode = { ...draggedNode.node, x: newX, y: newY };
+      setDraggedNode({ ...draggedNode, node: updatedNode });
     } else {
       setIsDragging(true);
     }
@@ -516,8 +451,29 @@ export default function Component() {
     setIsPanning(false);
     setIsDraggingNode(false);
     setIsDraggingUser(false);
-    setDraggedNode(null);
-    setDraggedUser(null);
+
+    if (draggedUser) {
+      const updatedGraph = cloneGraph(graph);
+      updatedGraph.updateUserNode(draggedUser);
+      console.log("Updated user node:", draggedUser);
+      setGraph(updatedGraph);
+      setUsers(updatedGraph.userNodes);
+      setDraggedUser(null);
+    }
+
+    if (draggedNode) {
+      const updatedGraph = cloneGraph(graph);
+      if (draggedNode.type === "edge") {
+        updatedGraph.updateEdgeNode(draggedNode.node);
+        setEdgeNodes(updatedGraph.edgeNodes);
+      } else if (draggedNode.type === "central") {
+        updatedGraph.updateCentralNode(draggedNode.node);
+        setCentralNodes(updatedGraph.centralNodes);
+      }
+      setGraph(updatedGraph);
+      setDraggedNode(null);
+    }
+
     setTimeout(() => setIsDragging(false), 100);
   };
 
@@ -606,7 +562,8 @@ export default function Component() {
         // Draw latency label above the line (central-edge)
         const midX = (central.x + edge.x) / 2;
         const midY = (central.y + edge.y) / 2;
-        const latency = calculateLatency(central, edge.id, "edge", edgeNodes, centralNodes);
+        // const latency = calculateLatency(central, edge.id, "edge", edgeNodes, centralNodes);
+        const latency = graph.getLatency(central, edge);
         ctx.save();
         ctx.font = `${Math.max(10, 12 / zoomLevel)}px sans-serif`;
         ctx.fillStyle = "#6366f1";
@@ -634,7 +591,8 @@ export default function Component() {
         const midX = (edgeA.x + edgeB.x) / 2;
         const midY = (edgeA.y + edgeB.y) / 2;
         // Use calculateLatency for edge-to-edge (simulate as user at edgeA to edgeB)
-        const latency = calculateLatency(edgeA, edgeB.id, "edge", edgeNodes, centralNodes);
+        // const latency = calculateLatency(edgeA, edgeB.id, "edge", edgeNodes, centralNodes);
+        const latency = graph.getLatency(edgeA, edgeB);
         ctx.save();
         ctx.font = `${Math.max(10, 12 / zoomLevel)}px sans-serif`;
         ctx.fillStyle = "#059669";
@@ -787,56 +745,44 @@ export default function Component() {
       }
 
       // Predicted path
-      if (predictionEnabled && user.predictedPath.length > 0) {
-        ctx.strokeStyle = "rgba(168, 85, 247, 0.6)";
-        ctx.lineWidth = 2 / zoomLevel;
-        ctx.setLineDash([5 / zoomLevel, 5 / zoomLevel]);
-        ctx.beginPath();
-        ctx.moveTo(user.x, user.y);
-        user.predictedPath.forEach((point) => {
-          ctx.lineTo(point.x, point.y);
-        });
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
+      // if (predictionEnabled && user.predictedPath.length > 0) {
+      //   ctx.strokeStyle = "rgba(168, 85, 247, 0.6)";
+      //   ctx.lineWidth = 2 / zoomLevel;
+      //   ctx.setLineDash([5 / zoomLevel, 5 / zoomLevel]);
+      //   ctx.beginPath();
+      //   ctx.moveTo(user.x, user.y);
+      //   user.predictedPath.forEach((point) => {
+      //     ctx.lineTo(point.x, point.y);
+      //   });
+      //   ctx.stroke();
+      //   ctx.setLineDash([]);
+      // }
 
       // Connection to assigned edge (different style for manual connections)
-      if (user.assignedEdge) {
-        const assignedEdge = edgeNodes.find(
-          (edge) => edge.id === user.assignedEdge
+      if (user.assignedNode) {
+        const assignedNode = edgeNodes.find(
+          (edge) => edge.id === user.assignedNode
         );
-        if (assignedEdge) {
+        if (assignedNode) {
           ctx.strokeStyle = user.manualConnection
             ? "rgba(34, 197, 94, 0.8)"
             : "rgba(34, 197, 94, 0.4)";
           ctx.lineWidth = user.manualConnection ? 2 / zoomLevel : 1 / zoomLevel;
-          if (user.manualConnection) {
-            ctx.setLineDash([]);
-          }
           ctx.beginPath();
           ctx.moveTo(user.x, user.y);
-          ctx.lineTo(assignedEdge.x, assignedEdge.y);
+          ctx.lineTo(assignedNode.x, assignedNode.y);
           ctx.stroke();
-        }
-      }
 
-      // Connection to assigned central node (different style for manual connections)
-      if (user.assignedCentral) {
-        const assignedCentral = centralNodes.find(
-          (central) => central.id === user.assignedCentral
-        );
-        if (assignedCentral) {
-          ctx.strokeStyle = user.manualConnection
-            ? "rgba(99, 102,241, 0.8)"
-            : "rgba(99, 102,241, 0.4)";
-          ctx.lineWidth = user.manualConnection ? 2 / zoomLevel : 1 / zoomLevel;
-          if (user.manualConnection) {
-            ctx.setLineDash([]);
-          }
-          ctx.beginPath();
-          ctx.moveTo(user.x, user.y);
-          ctx.lineTo(assignedCentral.x, assignedCentral.y);
-          ctx.stroke();
+          // Draw latency label above the line
+          const midX = (user.x + assignedNode.x) / 2;
+          const midY = (user.y + assignedNode.y) / 2;
+          const latency = calculateLatency(user, assignedNode.id, "edge", edgeNodes, centralNodes);
+          ctx.save();
+          ctx.font = `${Math.max(10, 12 / zoomLevel)}px sans-serif`;
+          ctx.fillStyle = "#059669";
+          ctx.textAlign = "center";
+          ctx.fillText(`${latency} ms`, midX, midY - 10);
+          ctx.restore();
         }
       }
 
@@ -927,11 +873,10 @@ export default function Component() {
     const interval = setInterval(() => {
       simulationStep();
       optimizeReplicaPlacement();
-      draw();
     }, 100);
 
     return () => clearInterval(interval);
-  }, [simulationStep, optimizeReplicaPlacement, draw]);
+  }, [simulationStep, optimizeReplicaPlacement]);
 
   useEffect(() => {
     const handleResize = () => draw();
@@ -987,6 +932,12 @@ export default function Component() {
     );
     const updatedGraph = cloneGraph(graph)
     updatedGraph.addNode(newEdgeNode);
+    const serverNode = [...updatedGraph.edgeNodes, ...updatedGraph.centralNodes];
+    for (const node of serverNode) {
+      if (node.id !== newEdgeNode.id) {
+        updatedGraph.addNewEdge(newEdgeNode, node);
+      }
+    }
     setGraph(updatedGraph);
     setEdgeNodes(updatedGraph.edgeNodes);
   };
@@ -1016,6 +967,12 @@ export default function Component() {
     );
     const updatedGraph = cloneGraph(graph);
     updatedGraph.addNode(newCentral);
+    const serverNode = [...updatedGraph.edgeNodes, ...updatedGraph.centralNodes];
+    for (const node of serverNode) {
+      if (node.id !== newCentral.id) {
+        updatedGraph.addNewEdge(newCentral, node);
+      }
+    }
     setGraph(updatedGraph);
     setCentralNodes(updatedGraph.centralNodes);
   };
