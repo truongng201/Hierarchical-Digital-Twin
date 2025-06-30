@@ -199,9 +199,7 @@ export default function Component() {
 
     setUsers(updatedUsers);
 
-    const avgLatency =
-      updatedUsers.reduce((sum, user) => sum + user.latency, 0) /
-        updatedUsers.length || 0;
+    const avgLatency = graph.avgerageLatency()
     setTotalLatency(Math.round(avgLatency));
 
     // Update edge node loads
@@ -341,7 +339,6 @@ export default function Component() {
     if (editMode !== "none") {
       const canvas = canvasRef.current;
       if (!canvas) return;
-
       const rect = canvas.getBoundingClientRect();
       const screenX = event.clientX - rect.left;
       const screenY = event.clientY - rect.top;
@@ -352,7 +349,7 @@ export default function Component() {
       if (editMode === "users" || editMode === "both") {
         const clickedUser = users.find(
           (user) =>
-            calculateDistance(worldX, worldY, user.x, user.y) < user.size + 5
+            calculateDistance(worldX, worldY, user.x, user.y) < 10
         );
         if (clickedUser) {
           setIsDraggingUser(true);
@@ -451,10 +448,11 @@ export default function Component() {
     setIsPanning(false);
     setIsDraggingNode(false);
     setIsDraggingUser(false);
-
+    console.log(isDragging, "isDragging state after mouse up", draggedUser);
     if (draggedUser) {
       const updatedGraph = cloneGraph(graph);
       updatedGraph.updateUserNode(draggedUser);
+      console.log(draggedUser)
       console.log("Updated user node:", draggedUser);
       setGraph(updatedGraph);
       setUsers(updatedGraph.userNodes);
@@ -760,14 +758,19 @@ export default function Component() {
 
       // Connection to assigned edge (different style for manual connections)
       if (user.assignedNode) {
-        const assignedNode = edgeNodes.find(
+        let assignedNode = edgeNodes.find(
           (edge) => edge.id === user.assignedNode
         );
+
+        if (!assignedNode) {
+          assignedNode = centralNodes.find(
+            (central) => central.id === user.assignedNode
+          );
+        }
+
         if (assignedNode) {
-          ctx.strokeStyle = user.manualConnection
-            ? "rgba(34, 197, 94, 0.8)"
-            : "rgba(34, 197, 94, 0.4)";
-          ctx.lineWidth = user.manualConnection ? 2 / zoomLevel : 1 / zoomLevel;
+          ctx.strokeStyle = "rgba(34, 197, 94, 0.8)";
+          ctx.lineWidth = 2 / zoomLevel;
           ctx.beginPath();
           ctx.moveTo(user.x, user.y);
           ctx.lineTo(assignedNode.x, assignedNode.y);
@@ -776,7 +779,7 @@ export default function Component() {
           // Draw latency label above the line
           const midX = (user.x + assignedNode.x) / 2;
           const midY = (user.y + assignedNode.y) / 2;
-          const latency = calculateLatency(user, assignedNode.id, "edge", edgeNodes, centralNodes);
+          const latency = graph.getLatency(user, assignedNode);
           ctx.save();
           ctx.font = `${Math.max(10, 12 / zoomLevel)}px sans-serif`;
           ctx.fillStyle = "#059669";
@@ -844,14 +847,12 @@ export default function Component() {
       ctx.arc(user.x, user.y, 3, 0, 2 * Math.PI);
       ctx.fill();
 
-      // User ID for selected user
-      if (isSelected) {
-        const fontSize = Math.max(8, 12 / zoomLevel);
-        ctx.fillStyle = "#374151";
-        ctx.font = `${fontSize}px sans-serif`;
-        ctx.textAlign = "center";
-        ctx.fillText(user.id, user.x, user.y - user.size - 10);
-      }
+      // User ID for all users
+      const fontSize = Math.max(8, 12 / zoomLevel);
+      ctx.fillStyle = "#374151";
+      ctx.font = `${fontSize}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.fillText(user.id, user.x, user.y - user.size - 10);
     });
 
     ctx.restore();

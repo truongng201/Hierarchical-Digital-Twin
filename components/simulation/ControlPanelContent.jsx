@@ -6,14 +6,11 @@ import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
-import { Input } from "@/components/ui/input"
 import {
   Play, Pause, RotateCcw, Users, Server, Plus, Minus, Database, Trash2, Link, Unlink, Edit3, Move, ChevronLeft
 } from "lucide-react"
 
 export default function ControlPanelContent({
-  edgeNodes,
-  centralNodes,
   isSimulating,
   setIsSimulating,
   simulationSpeed,
