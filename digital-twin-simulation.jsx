@@ -9,17 +9,17 @@ import SimulationCanvas from "@/components/simulation/SimulationCanvas";
 import EditModeDescription from "@/components/simulation/EditModeDescription";
 import ControlPanelContent from "@/components/simulation/ControlPanelContent";
 import MetricsPanelContent from "@/components/simulation/MetricsPanelContent";
-import { calculateDistance, findNearestNode, getAllNodes, calculateLatency, clearLatencyCache } from "@/lib/helper";
-import { CentralNode, EdgeNode, UserNode } from "./lib/components";
+import { calculateDistance, findNearestNode, calculateLatency, clearLatencyCache } from "@/lib/helper";
+import { CentralNode, EdgeNode, Graph, UserNode } from "./lib/components";
 
 export default function Component() {
   const canvasRef = useRef(null);
-  const [users, setUsers] = useState([]);
-  const [edgeNodes, setEdgeNodes] = useState([]);
 
   // Central nodes - main servers/coordinators
-  const [centralNodes, setCentralNodes] = useState([]);
-  const [graph, setGraph] = useState(new Map()); // adjacency list for graph representation
+  const [graph, setGraph] = useState(new Graph());
+  const [users, setUsers] = useState(graph.userNodes);
+  const [edgeNodes, setEdgeNodes] = useState(graph.edgeNodes);
+  const [centralNodes, setCentralNodes] = useState(graph.centralNodes);
 
   const [isSimulating, setIsSimulating] = useState(false);
   const [simulationSpeed, setSimulationSpeed] = useState([1]);
@@ -69,11 +69,6 @@ export default function Component() {
   // Algorithms for user expectancy calculation
   const algorithms = {
     linear: "Linear Prediction",
-  };
-
-  // Calculate distance between two points
-  const calculateDistance = (x1, y1, x2, y2) => {
-    return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
   };
 
   // Manually connect user to a specific node
