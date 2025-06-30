@@ -69,55 +69,11 @@ export default function Component() {
   // Algorithms for user expectancy calculation
   const algorithms = {
     linear: "Linear Prediction",
-    // kalman: "Kalman Filter",
-    // markov: "Markov Chain",
-    // neural: "Neural Network",
-    // gravity: "Gravity Model",
   };
 
   // Calculate distance between two points
   const calculateDistance = (x1, y1, x2, y2) => {
     return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
-  };
-
-  // Find nearest edge node to a user
-  const findNearestEdge = (user) => {
-    if (edgeNodes.length === 0) return null;
-    return edgeNodes.reduce((nearest, edge) => {
-      const distanceToEdge = calculateDistance(user.x, user.y, edge.x, edge.y);
-      const distanceToNearest = calculateDistance(
-        user.x,
-        user.y,
-        nearest.x,
-        nearest.y
-      );
-      return distanceToEdge < distanceToNearest ? edge : nearest;
-    });
-  };
-
-  // Find nearest central node to a user
-  const findNearestCentral = (user) => {
-    if (centralNodes.length === 0) return null;
-    return centralNodes.reduce((nearest, central) => {
-      const distanceToCentral = calculateDistance(
-        user.x,
-        user.y,
-        central.x,
-        central.y
-      );
-      const distanceToNearest = nearest
-        ? calculateDistance(user.x, user.y, nearest.x, nearest.y)
-        : Number.POSITIVE_INFINITY;
-      return distanceToCentral < distanceToNearest ? central : nearest;
-    });
-  };
-
-  // Get all available nodes for connection
-  const getAllNodes = () => {
-    return [
-      ...edgeNodes.map((node) => ({ ...node, type: "edge" })),
-      ...centralNodes.map((node) => ({ ...node, type: "central" })),
-    ];
   };
 
   // Manually connect user to a specific node
@@ -216,82 +172,6 @@ export default function Component() {
         for (let i = 1; i <= predictionSteps[0]; i++) {
           currentX += user.vx * i * 2;
           currentY += user.vy * i * 2;
-          currentX = Math.max(10, Math.min(window.innerWidth - 10, currentX));
-          currentY = Math.max(10, Math.min(window.innerHeight - 10, currentY));
-          predictions.push({ x: currentX, y: currentY });
-        }
-        break;
-
-      case "kalman":
-        const noise = 0.1;
-        for (let i = 1; i <= predictionSteps[0]; i++) {
-          currentX += user.vx * i * 2 + (Math.random() - 0.5) * noise * i;
-          currentY += user.vy * i * 2 + (Math.random() - 0.5) * noise * i;
-          currentX = Math.max(10, Math.min(window.innerWidth - 10, currentX));
-          currentY = Math.max(10, Math.min(window.innerHeight - 10, currentY));
-          predictions.push({ x: currentX, y: currentY });
-        }
-        break;
-
-      case "markov":
-        for (let i = 1; i <= predictionSteps[0]; i++) {
-          const stateChange = Math.random();
-          if (stateChange < 0.7) {
-            currentX += user.vx * 2;
-            currentY += user.vy * 2;
-          } else {
-            currentX += (Math.random() - 0.5) * 8;
-            currentY += (Math.random() - 0.5) * 8;
-          }
-          currentX = Math.max(10, Math.min(window.innerWidth - 10, currentX));
-          currentY = Math.max(10, Math.min(window.innerHeight - 10, currentY));
-          predictions.push({ x: currentX, y: currentY });
-        }
-        break;
-
-      case "neural":
-        for (let i = 1; i <= predictionSteps[0]; i++) {
-          const weight1 = 0.8,
-            weight2 = 0.6,
-            bias = 0.1;
-          currentX += (user.vx * weight1 + user.vy * weight2 + bias) * 2;
-          currentY += (user.vy * weight1 + user.vx * weight2 + bias) * 2;
-          currentX = Math.max(10, Math.min(window.innerWidth - 10, currentX));
-          currentY = Math.max(10, Math.min(window.innerHeight - 10, currentY));
-          predictions.push({ x: currentX, y: currentY });
-        }
-        break;
-
-      case "gravity":
-        for (let i = 1; i <= predictionSteps[0]; i++) {
-          let forceX = 0,
-            forceY = 0;
-          // Attraction to edge nodes
-          edgeNodes.forEach((edge) => {
-            const distance = calculateDistance(
-              currentX,
-              currentY,
-              edge.x,
-              edge.y
-            );
-            const force = 100 / (distance + 1);
-            forceX += (edge.x - currentX) * force * 0.001;
-            forceY += (edge.y - currentY) * force * 0.001;
-          });
-          // Stronger attraction to central nodes
-          centralNodes.forEach((central) => {
-            const distance = calculateDistance(
-              currentX,
-              currentY,
-              central.x,
-              central.y
-            );
-            const force = 200 / (distance + 1);
-            forceX += (central.x - currentX) * force * 0.001;
-            forceY += (central.y - currentY) * force * 0.001;
-          });
-          currentX += user.vx * 2 + forceX;
-          currentY += user.vy * 2 + forceY;
           currentX = Math.max(10, Math.min(window.innerWidth - 10, currentX));
           currentY = Math.max(10, Math.min(window.innerHeight - 10, currentY));
           predictions.push({ x: currentX, y: currentY });
