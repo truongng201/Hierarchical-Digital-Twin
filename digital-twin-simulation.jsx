@@ -10,7 +10,7 @@ import EditModeDescription from "@/components/simulation/EditModeDescription";
 import ControlPanelContent from "@/components/simulation/ControlPanelContent";
 import MetricsPanelContent from "@/components/simulation/MetricsPanelContent";
 import { calculateDistance, findNearestNode, calculateLatency, clearLatencyCache } from "@/lib/helper";
-import { CentralNode, EdgeNode, Graph, UserNode } from "./lib/components";
+import { CentralNode, EdgeNode, Graph, UserNode, cloneGraph } from "./lib/components";
 
 export default function Component() {
   const canvasRef = useRef(null);
@@ -73,54 +73,57 @@ export default function Component() {
 
   // Manually connect user to a specific node
   const connectUserToNode = (userId, nodeId, nodeType) => {
-    setUsers((prevUsers) =>
-      prevUsers.map((user) => {
-        if (user.id === userId) {
-          const latency = calculateLatency(user, nodeId, nodeType, edgeNodes, centralNodes);
-          return {
-            ...user,
-            assignedEdge: nodeType === "edge" ? nodeId : null,
-            assignedCentral: nodeType === "central" ? nodeId : null,
-            manualConnection: true,
-            latency,
-          };
-        }
-        return user;
-      })
-    );
+    // setUsers((prevUsers) =>
+    //   prevUsers.map((user) => {
+    //     if (user.id === userId) {
+    //       const latency = calculateLatency(user, nodeId, nodeType, edgeNodes, centralNodes);
+    //       return {
+    //         ...user,
+    //         assignedEdge: nodeType === "edge" ? nodeId : null,
+    //         assignedCentral: nodeType === "central" ? nodeId : null,
+    //         manualConnection: true,
+    //         latency,
+    //       };
+    //     }
+    //     return user;
+    //   })
+    // );
+    alert("This feature is not implemented yet.");
   };
 
   // Disconnect user from all nodes
   const disconnectUser = (userId) => {
-    setUsers((prevUsers) => {
-      const newUsers = [];
-      for (let i = 0; i < prevUsers.length; i++) {
-        const user = prevUsers[i];
-        if (user.id === userId) {
-          newUsers.push({
-            ...user,
-            assignedEdge: null,
-            assignedCentral: null,
-            manualConnection: false,
-            latency: 100 + Math.random() * 50,
-          });
-        } else {
-          newUsers.push(user);
-        }
-      }
-      return newUsers;
-    });
+    alert("This feature is not implemented yet.");
+    // setUsers((prevUsers) => {
+    //   const newUsers = [];
+    //   for (let i = 0; i < prevUsers.length; i++) {
+    //     const user = prevUsers[i];
+    //     if (user.id === userId) {
+    //       newUsers.push({
+    //         ...user,
+    //         assignedEdge: null,
+    //         assignedCentral: null,
+    //         manualConnection: false,
+    //         latency: 100 + Math.random() * 50,
+    //       });
+    //     } else {
+    //       newUsers.push(user);
+    //     }
+    //   }
+    //   return newUsers;
+    // });
   };
 
   // Reset all manual connections
   const resetAllConnections = () => {
-    setUsers((prevUsers) => {
-      const newUsers = [];
-      for (let i = 0; i < prevUsers.length; i++) {
-        newUsers.push({ ...prevUsers[i], manualConnection: false });
-      }
-      return newUsers;
-    });
+    // setUsers((prevUsers) => {
+    //   const newUsers = [];
+    //   for (let i = 0; i < prevUsers.length; i++) {
+    //     newUsers.push({ ...prevUsers[i], manualConnection: false });
+    //   }
+    //   return newUsers;
+    // });
+    alert("This feature is not implemented yet.");
   };
 
   // Update selected user properties
@@ -973,56 +976,58 @@ export default function Component() {
   };
 
   const addEdgeNode = () => {
-    const newEdge = {
-      id: `edge-${edgeNodes.length + 1}`,
-      x: Math.random() * (window.innerWidth - 200) + 100,
-      y: Math.random() * (window.innerHeight - 200) + 100,
-      capacity: edgeCapacity[0],
-      currentLoad: 0,
-      replicas: [],
-      coverage: edgeCoverage[0],
-      isWarm: false,
-      lastAccessTime: null,
-      lastMetrics: null,
-      type: "cloudlet"
-    };
-    setEdgeNodes((prev) => [...prev, newEdge]);
+    const newEdgeNode = new EdgeNode(
+      `edge-${edgeNodes.length + 1}`,
+      Math.random() * (window.innerWidth - 200) + 100,
+      Math.random() * (window.innerHeight - 200) + 100,
+      edgeCapacity[0],
+      edgeCoverage[0],
+      [],
+      0
+    );
+    const updatedGraph = cloneGraph(graph)
+    updatedGraph.addNode(newEdgeNode);
+    setGraph(updatedGraph);
+    setEdgeNodes(updatedGraph.edgeNodes);
   };
 
   const removeEdgeNode = () => {
-    if (edgeNodes.length > 0) {
-      const nodeToRemove = edgeNodes[edgeNodes.length - 1];
-      setEdgeNodes((prev) => prev.slice(0, -1));
-      if (selectedEdge && selectedEdge.id === nodeToRemove.id) {
+    const updatedGraph = cloneGraph(graph)
+    if (updatedGraph.edgeNodes.length > 0) {
+      const deletedNodeID = updatedGraph.edgeNodes[updatedGraph.edgeNodes.length - 1].id;
+      updatedGraph.deleteNode(deletedNodeID);
+      setGraph(updatedGraph);
+      setEdgeNodes(updatedGraph.edgeNodes);
+      if (selectedEdge && selectedEdge.id === deletedNodeID) {
         setSelectedEdge(null);
       }
     }
   };
 
   const addCentralNode = () => {
-    const newCentral = {
-      id: `central-${centralNodes.length + 1}`,
-      x: Math.random() * (window.innerWidth - 400) + 200,
-      y: Math.random() * (window.innerHeight - 400) + 200,
-      capacity: centralCapacity[0],
-      currentLoad: 0,
-      coverage: centralCoverage[0],
-      type: "main",
-      isWarm: false,
-      lastAccessTime: null,
-      lastMetrics: null,
-      nodeType: "cloud"
-    };
-    setCentralNodes((prev) => [...prev, newCentral]);
+    const newCentral = new CentralNode(
+      `central-${centralNodes.length + 1}`,
+      Math.random() * (window.innerWidth - 400) + 200,
+      Math.random() * (window.innerHeight - 400) + 200,
+      centralCapacity[0],
+      centralCoverage[0],
+      [],
+      0
+    );
+    const updatedGraph = cloneGraph(graph);
+    updatedGraph.addNode(newCentral);
+    setGraph(updatedGraph);
+    setCentralNodes(updatedGraph.centralNodes);
   };
 
   const removeCentralNode = () => {
-    if (centralNodes.length > 0) {
-      setCentralNodes((prev) => prev.slice(0, -1));
-      if (
-        selectedCentral &&
-        selectedCentral.id === `central-${centralNodes.length}`
-      ) {
+    const updatedGraph = cloneGraph(graph)
+    if (updatedGraph.centralNodes.length > 0) {
+      const deletedNodeID = updatedGraph.centralNodes[updatedGraph.centralNodes.length - 1].id;
+      updatedGraph.deleteNode(deletedNodeID);
+      setGraph(updatedGraph);
+      setCentralNodes(updatedGraph.centralNodes);
+      if (selectedCentral && selectedCentral.id === deletedNodeID) {
         setSelectedCentral(null);
       }
     }
@@ -1030,47 +1035,53 @@ export default function Component() {
 
   const deleteSelectedNode = () => {
     if (selectedEdge) {
-      setEdgeNodes((prev) =>
-        prev.filter((edge) => edge.id !== selectedEdge.id)
-      );
+      const updatedGraph = cloneGraph(graph)
+      updatedGraph.deleteNode(selectedEdge.id);
+      setGraph(updatedGraph);
+      setEdgeNodes(updatedGraph.edgeNodes);
       setSelectedEdge(null);
     }
     if (selectedCentral) {
-      setCentralNodes((prev) =>
-        prev.filter((central) => central.id !== selectedCentral.id)
-      );
+      const updatedGraph = cloneGraph(graph)
+      updatedGraph.deleteNode(selectedCentral.id);
+      setGraph(updatedGraph);
+      setCentralNodes(updatedGraph.centralNodes);
       setSelectedCentral(null);
     }
   };
 
   const clearAllUsers = () => {
-    clearLatencyCache();
-    setUsers([]);
-    setSelectedUser(null);
+    // clearLatencyCache();
+    // setUsers([]);
+    // setSelectedUser(null);
+    alert("This feature is not implemented yet.");
   };
 
   const clearAllEdgeNodes = () => {
-    clearLatencyCache();
-    setEdgeNodes([]);
-    setSelectedEdge(null);
+    // clearLatencyCache();
+    // setEdgeNodes([]);
+    // setSelectedEdge(null);
+    alert("This feature is not implemented yet.");
   };
 
   const clearAllCentralNodes = () => {
-    clearLatencyCache();
-    setCentralNodes([]);
-    setSelectedCentral(null);
+    // clearLatencyCache();
+    // setCentralNodes([]);
+    // setSelectedCentral(null);
+    alert("This feature is not implemented yet.");
   };
 
   const clearEverything = () => {
-    clearLatencyCache();
-    setUsers([]);
-    setEdgeNodes([]);
-    setCentralNodes([]);
-    setSelectedUser(null);
-    setSelectedEdge(null);
-    setSelectedCentral(null);
-    setIsSimulating(false);
-    setTotalLatency(0);
+    // clearLatencyCache();
+    // setUsers([]);
+    // setEdgeNodes([]);
+    // setCentralNodes([]);
+    // setSelectedUser(null);
+    // setSelectedEdge(null);
+    // setSelectedCentral(null);
+    // setIsSimulating(false);
+    // setTotalLatency(0);
+    alert("This feature is not implemented yet.");
   };
 
   const getEditModeDescription = () => {

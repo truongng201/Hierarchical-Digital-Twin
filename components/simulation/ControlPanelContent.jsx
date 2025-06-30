@@ -126,7 +126,7 @@ export default function ControlPanelContent({
         </Card>
 
         {/* Manual Connection Controls */}
-        <Card className="mb-4">
+        {/* <Card className="mb-4">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
               <Link className="w-4 h-4" />
@@ -190,10 +190,10 @@ export default function ControlPanelContent({
               Reset All Connections
             </Button>
           </CardContent>
-        </Card>
+        </Card> */}
 
         {/* User Editor */}
-        {selectedUser && (
+        {/* {selectedUser && (
           <Card className="mb-4">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2">
@@ -236,7 +236,7 @@ export default function ControlPanelContent({
               </div>
             </CardContent>
           </Card>
-        )}
+        )} */}
 
         {/* Clear All Controls */}
         <Card className="mb-4">
