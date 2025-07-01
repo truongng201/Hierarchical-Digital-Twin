@@ -129,39 +129,44 @@ export default function Component() {
       targetNode = centralNodes.find((central) => central.id === nodeId);
     }
 
-    if (!targetNode) return 100 + Math.random() * 50;
+    if (!targetNode) return 120; // FIXED fallback latency
 
-    // Generate random data size s(u,t) in range [100, 500] MB
-    const dataSize = 100 + Math.random() * 400; // MB
+    // REALISTIC - Random data size for different requests
+    const dataSize = 100 + Math.random() * 400; // 100-500 MB random
+    
+    // Calculate PHYSICAL DISTANCE between user and target node
+    const physicalDistance = calculateDistance(user.x, user.y, targetNode.x, targetNode.y);
     
     // Determine if it's Cold Start or Warm Start
     const isWarmStart = targetNode.isWarm || false; // I_{u,v,t}
     const coldStartIndicator = isWarmStart ? 1 : 0;
     
-    // Calculate Communication Delay: d_com = s(u,t) × τ(v_u,t, v)
-    let unitTransmissionDelay; // τ (ms/MB)
+    // Calculate Communication Delay: d_com = distance × baseRate × dataSize
+    let baseTransmissionRate; // Base rate per pixel distance (ms/MB/pixel)
     if (nodeType === "edge") {
-      // Between APs: [0.2, 1] ms/MB
-      unitTransmissionDelay = 0.2 + Math.random() * 0.8;
+      // Edge nodes: Lower base rate (shorter network path)
+      baseTransmissionRate = 0.002; // 0.002 ms/MB/pixel
     } else {
-      // To Cloud: [2, 10] ms/MB  
-      unitTransmissionDelay = 2 + Math.random() * 8;
+      // Central nodes: Higher base rate (longer network path to cloud)
+      baseTransmissionRate = 0.008; // 0.008 ms/MB/pixel (4x higher)
     }
-    const communicationDelay = dataSize * unitTransmissionDelay;
+    
+    // Total transmission delay = distance × baseRate × dataSize
+    const communicationDelay = physicalDistance * baseTransmissionRate * dataSize;
     
     // Calculate Processing Delay: d_proc = (1 - I_{u,v,t}) × d_cold + s(u,t) × ρ_{u,v}
     
-    // Cold start delay [100, 500] ms
-    const coldStartDelay = 100 + Math.random() * 400;
+    // FIXED cold start delay (independent of distance)
+    const coldStartDelay = 200; // Fixed 200ms cold start penalty
     
-    // Unit processing time ρ_{u,v} (ms/MB)
+    // Unit processing time ρ_{u,v} (ms/MB) - EQUAL PROCESSING POWER
     let unitProcessingTime;
     if (nodeType === "edge") {
-      // Cloudlet: [0.5, 2] ms/MB
-      unitProcessingTime = 0.5 + Math.random() * 1.5;
+      // Edge: Equal processing power
+      unitProcessingTime = 0.5; // 0.5 ms/MB
     } else {
-      // Cloud: 0.05 ms/MB
-      unitProcessingTime = 0.05;
+      // Central: Equal processing power (no longer more powerful)
+      unitProcessingTime = 0.5; // 0.5 ms/MB (same as edge)
     }
     
     const processingDelay = (1 - coldStartIndicator) * coldStartDelay + dataSize * unitProcessingTime;
@@ -179,11 +184,12 @@ export default function Component() {
     if (targetNode) {
       targetNode.lastMetrics = {
         dataSize: Math.round(dataSize),
+        physicalDistance: Math.round(physicalDistance),
         communicationDelay: Math.round(communicationDelay),
         processingDelay: Math.round(processingDelay),
         isWarmStart: isWarmStart,
-        unitTransmissionDelay: unitTransmissionDelay.toFixed(3),
-        unitProcessingTime: unitProcessingTime.toFixed(3)
+        baseTransmissionRate: baseTransmissionRate.toFixed(3),
+        unitProcessingTime: unitProcessingTime.toFixed(2)
       };
     }
     
@@ -222,7 +228,7 @@ export default function Component() {
             assignedEdge: null,
             assignedCentral: null,
             manualConnection: false,
-            latency: 100 + Math.random() * 50,
+            latency: 500, // FIXED high latency when disconnected
           });
         } else {
           newUsers.push(user);
@@ -294,10 +300,10 @@ export default function Component() {
         break;
 
       case "kalman":
-        const noise = 0.1;
+        // STABLE Kalman Filter - no random noise for single digital twin
         for (let i = 1; i <= predictionSteps[0]; i++) {
-          currentX += user.vx * i * 2 + (Math.random() - 0.5) * noise * i;
-          currentY += user.vy * i * 2 + (Math.random() - 0.5) * noise * i;
+          currentX += user.vx * i * 2; // Remove random noise component
+          currentY += user.vy * i * 2; // Remove random noise component
           currentX = Math.max(10, Math.min(window.innerWidth - 10, currentX));
           currentY = Math.max(10, Math.min(window.innerHeight - 10, currentY));
           predictions.push({ x: currentX, y: currentY });
@@ -305,14 +311,17 @@ export default function Component() {
         break;
 
       case "markov":
+        // STABLE Markov Chain - deterministic for single digital twin
         for (let i = 1; i <= predictionSteps[0]; i++) {
-          const stateChange = Math.random();
+          // Use deterministic pattern instead of random state changes
+          const stateChange = (i % 3 === 0) ? 0.8 : 0.6; // Predictable pattern
           if (stateChange < 0.7) {
             currentX += user.vx * 2;
             currentY += user.vy * 2;
           } else {
-            currentX += (Math.random() - 0.5) * 8;
-            currentY += (Math.random() - 0.5) * 8;
+            // Use small deterministic offset instead of random
+            currentX += user.vx * 0.5;
+            currentY += user.vy * 0.5;
           }
           currentX = Math.max(10, Math.min(window.innerWidth - 10, currentX));
           currentY = Math.max(10, Math.min(window.innerHeight - 10, currentY));
@@ -391,35 +400,104 @@ export default function Component() {
         };
       }
 
-      const nearestEdge = findNearestNode(edgeNodes, user);
-      const nearestCentral = findNearestNode(centralNodes, user);
+      // Get ALL nodes and calculate distance-weighted scores
+      const allCandidates = [];
+      
+             // Add edge node candidates
+       edgeNodes.forEach(edge => {
+                  const distance = calculateDistance(user.x, user.y, edge.x, edge.y);
+         const latency = calculateLatency(user, edge.id, "edge");
+         const stabilityBonus = (user.assignedEdge === edge.id) ? 100 : 0; // Increased from 20 to 100
+         
+          // Since distance is now built into latency calculation, reduce additional penalty
+          const distancePenalty = distance * 0.5;
+          
+          // Smaller proximity bonus since distance is already factored in
+          const proximityBonus = distance < 100 ? (100 - distance) * 1 : 0;
+          
+          const totalScore = latency + distancePenalty - stabilityBonus - proximityBonus;
+         
+         allCandidates.push({
+           id: edge.id,
+           type: "edge",
+           distance: distance,
+           latency: latency,
+           totalScore: totalScore,
+           node: edge
+         });
+       });
+       
+       // Add central node candidates  
+       centralNodes.forEach(central => {
+                  const distance = calculateDistance(user.x, user.y, central.x, central.y);
+         const latency = calculateLatency(user, central.id, "central");
+         const stabilityBonus = (user.assignedCentral === central.id) ? 100 : 0; // Increased from 20 to 100
+         
+          // Since distance is now built into latency calculation, reduce additional penalty
+          const distancePenalty = distance * 0.5;
+          
+          // Smaller proximity bonus since distance is already factored in
+          const proximityBonus = distance < 150 ? (150 - distance) * 2 : 0;
+          
+          const totalScore = latency + distancePenalty - stabilityBonus - proximityBonus;
+         
+         allCandidates.push({
+           id: central.id,
+           type: "central", 
+           distance: distance,
+           latency: latency,
+           totalScore: totalScore,
+           node: central
+         });
+       });
 
-      // Calculate latency using experimental formula for both edge and central nodes
-      let bestLatency = Number.POSITIVE_INFINITY;
+      // Find best candidate based on total score (latency + distance penalty)
+      let bestCandidate = null;
+      let bestScore = Number.POSITIVE_INFINITY;
+      let currentCandidate = null;
+      
+      // Find current connection
+      allCandidates.forEach(candidate => {
+        if ((candidate.type === "edge" && user.assignedEdge === candidate.id) ||
+            (candidate.type === "central" && user.assignedCentral === candidate.id)) {
+          currentCandidate = candidate;
+        }
+      });
+      
+      allCandidates.forEach(candidate => {
+        if (candidate.totalScore < bestScore) {
+          bestScore = candidate.totalScore;
+          bestCandidate = candidate;
+        }
+      });
+      
+      // SWITCHING THRESHOLD: Only switch if new candidate is significantly better
+      const switchingThreshold = 50; // 50ms improvement required to switch
+      if (currentCandidate && bestCandidate && 
+          (currentCandidate.totalScore - bestCandidate.totalScore) < switchingThreshold) {
+        // Current connection is "good enough", don't switch
+        bestCandidate = currentCandidate;
+        bestScore = currentCandidate.totalScore;
+      }
+
       let assignedEdge = null;
       let assignedCentral = null;
-
-      if (nearestEdge) {
-        const edgeLatency = calculateLatency(user, nearestEdge.id, "edge");
-        if (edgeLatency < bestLatency) {
-          bestLatency = edgeLatency;
-          assignedEdge = nearestEdge.id;
+      let bestLatency = Number.POSITIVE_INFINITY;
+      
+      if (bestCandidate) {
+        if (bestCandidate.type === "edge") {
+          assignedEdge = bestCandidate.id;
           assignedCentral = null;
-        }
-      }
-
-      if (nearestCentral) {
-        const centralLatency = calculateLatency(user, nearestCentral.id, "central");
-        if (centralLatency < bestLatency) {
-          bestLatency = centralLatency;
+        } else {
           assignedEdge = null;
-          assignedCentral = nearestCentral.id;
+          assignedCentral = bestCandidate.id;
         }
+        bestLatency = bestCandidate.latency;
       }
 
-      // If no nodes available, set high latency
+      // If no nodes available, set FIXED high latency
       const latency = bestLatency === Number.POSITIVE_INFINITY
-        ? 100 + Math.random() * 50
+        ? 500 // FIXED high latency when no nodes available
         : bestLatency;
 
       return {
@@ -467,10 +545,199 @@ export default function Component() {
     autoAssignment,
   ]);
 
-  // Simulation step
-  const simulationStep = useCallback(() => {
-    if (!isSimulating) return;
+  // Create refs for state to avoid re-render loops
+  const stateRef = useRef();
+  stateRef.current = {
+    users,
+    edgeNodes,
+    centralNodes,
+    selectedUser,
+    selectedEdge,
+    selectedCentral,
+    predictionEnabled,
+    userSize: userSize[0],
+    zoomLevel,
+    panOffset
+  };
 
+  // Canvas drawing function with minimal dependencies - moved before animation useEffect
+  const draw = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const state = stateRef.current;
+
+    // Set canvas size
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    // Apply transformations
+    ctx.save();
+    ctx.translate(state.panOffset.x, state.panOffset.y);
+    ctx.scale(state.zoomLevel, state.zoomLevel);
+
+    // Clear canvas
+    ctx.clearRect(-state.panOffset.x / state.zoomLevel, -state.panOffset.y / state.zoomLevel, 
+                  canvas.width / state.zoomLevel, canvas.height / state.zoomLevel);
+
+    // Draw grid background
+    const gridSize = 50; // Size of each grid cell
+    const startX = Math.floor(-state.panOffset.x / state.zoomLevel / gridSize) * gridSize;
+    const startY = Math.floor(-state.panOffset.y / state.zoomLevel / gridSize) * gridSize;
+    const endX = startX + (canvas.width / state.zoomLevel) + gridSize;
+    const endY = startY + (canvas.height / state.zoomLevel) + gridSize;
+
+    ctx.strokeStyle = "#e5e7eb"; // Light gray grid lines
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.5;
+
+    // Draw vertical lines
+    for (let x = startX; x <= endX; x += gridSize) {
+      ctx.beginPath();
+      ctx.moveTo(x, startY);
+      ctx.lineTo(x, endY);
+      ctx.stroke();
+    }
+
+    // Draw horizontal lines
+    for (let y = startY; y <= endY; y += gridSize) {
+      ctx.beginPath();
+      ctx.moveTo(startX, y);
+      ctx.lineTo(endX, y);
+      ctx.stroke();
+    }
+
+    ctx.globalAlpha = 1; // Reset opacity
+
+    // Draw connections first (behind everything)
+    state.users.forEach((user) => {
+      if (user.assignedEdge) {
+        const edgeNode = state.edgeNodes.find(edge => edge.id === user.assignedEdge);
+        if (edgeNode) {
+      ctx.beginPath();
+          ctx.moveTo(user.x, user.y);
+          ctx.lineTo(edgeNode.x, edgeNode.y);
+          ctx.strokeStyle = user.manualConnection ? "#f97316" : "#3b82f6";
+          ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+      }
+      if (user.assignedCentral) {
+        const centralNode = state.centralNodes.find(central => central.id === user.assignedCentral);
+        if (centralNode) {
+        ctx.beginPath();
+          ctx.moveTo(user.x, user.y);
+          ctx.lineTo(centralNode.x, centralNode.y);
+          ctx.strokeStyle = user.manualConnection ? "#f97316" : "#6b7280";
+          ctx.lineWidth = 2;
+        ctx.stroke();
+        }
+      }
+    });
+
+    // Draw predicted paths
+    if (state.predictionEnabled) {
+      state.users.forEach((user) => {
+        if (user.predictedPath && user.predictedPath.length > 0) {
+        ctx.beginPath();
+          ctx.moveTo(user.x, user.y);
+          user.predictedPath.forEach((point, index) => {
+            ctx.lineTo(point.x, point.y);
+          });
+          ctx.strokeStyle = "#a855f7";
+          ctx.lineWidth = 1;
+          ctx.setLineDash([5, 5]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      });
+    }
+
+    // Draw edge nodes
+    state.edgeNodes.forEach((edge) => {
+      const isSelected = state.selectedEdge && state.selectedEdge.id === edge.id;
+      
+      // Node circle
+      ctx.beginPath();
+      ctx.arc(edge.x, edge.y, 15, 0, 2 * Math.PI);
+      ctx.fillStyle = isSelected ? "#16a34a" : "#22c55e";
+      ctx.fill();
+      ctx.strokeStyle = isSelected ? "#15803d" : "#16a34a";
+      ctx.lineWidth = isSelected ? 3 : 2;
+      ctx.stroke();
+
+      // Warm indicator
+      if (edge.isWarm) {
+      ctx.beginPath();
+        ctx.arc(edge.x + 10, edge.y - 10, 3, 0, 2 * Math.PI);
+        ctx.fillStyle = "#10b981";
+      ctx.fill();
+      }
+
+      // Label
+      ctx.fillStyle = "#000";
+      ctx.font = "12px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(edge.id, edge.x, edge.y - 20);
+    });
+
+    // Draw central nodes
+    state.centralNodes.forEach((central) => {
+      const isSelected = state.selectedCentral && state.selectedCentral.id === central.id;
+      
+      // Node square
+      ctx.fillStyle = isSelected ? "#2563eb" : "#3b82f6";
+      ctx.fillRect(central.x - 12, central.y - 12, 24, 24);
+      ctx.strokeStyle = isSelected ? "#1d4ed8" : "#2563eb";
+      ctx.lineWidth = isSelected ? 3 : 2;
+      ctx.strokeRect(central.x - 12, central.y - 12, 24, 24);
+
+      // Warm indicator
+      if (central.isWarm) {
+      ctx.beginPath();
+        ctx.arc(central.x + 10, central.y - 10, 3, 0, 2 * Math.PI);
+        ctx.fillStyle = "#10b981";
+      ctx.fill();
+      }
+
+      // Label
+      ctx.fillStyle = "#000";
+      ctx.font = "12px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(central.id, central.x, central.y - 20);
+    });
+
+    // Draw users
+    state.users.forEach((user) => {
+      const isSelected = state.selectedUser && state.selectedUser.id === user.id;
+      
+      // User circle
+        ctx.beginPath();
+      ctx.arc(user.x, user.y, state.userSize, 0, 2 * Math.PI);
+      ctx.fillStyle = isSelected ? "#dc2626" : user.manualConnection ? "#f97316" : "#ef4444";
+      ctx.fill();
+      ctx.strokeStyle = isSelected ? "#b91c1c" : "#dc2626";
+      ctx.lineWidth = isSelected ? 3 : 2;
+        ctx.stroke();
+
+      // Label
+      ctx.fillStyle = "#000";
+      ctx.font = "10px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(user.id, user.x, user.y + state.userSize + 12);
+    });
+
+    ctx.restore();
+  }, []); // Empty dependency array to prevent re-creation
+
+  // Animation loop - Fixed to prevent continuous restarts
+  useEffect(() => {
+    const interval = setInterval(() => {
+      // Call functions directly to get latest state
+      if (isSimulating) {
     setUsers((prevUsers) =>
       prevUsers.map((user) => {
         let newX = user.x + user.vx * simulationSpeed[0];
@@ -490,629 +757,19 @@ export default function Component() {
         return { ...user, x: newX, y: newY, vx: newVx, vy: newVy };
       })
     );
-  }, [isSimulating, simulationSpeed]);
-
-  // Handle canvas click to add users or select nodes
-  const handleCanvasClick = (event) => {
-    if (isDragging || isPanning || isDraggingNode || isDraggingUser) return;
-
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const screenX = event.clientX - rect.left;
-    const screenY = event.clientY - rect.top;
-    const worldX = (screenX - panOffset.x) / zoomLevel;
-    const worldY = (screenY - panOffset.y) / zoomLevel;
-
-    // Check for node selection first
-    const clickedEdge = edgeNodes.find(
-      (edge) => calculateDistance(worldX, worldY, edge.x, edge.y) < 20
-    );
-    const clickedCentral = centralNodes.find(
-      (central) => calculateDistance(worldX, worldY, central.x, central.y) < 25
-    );
-    const clickedUser = users.find(
-      (user) =>
-        calculateDistance(worldX, worldY, user.x, user.y) < user.size + 5
-    );
-
-    if (clickedEdge) {
-      setSelectedEdge(clickedEdge);
-      setSelectedCentral(null);
-      setSelectedUser(null);
-      return;
-    }
-
-    if (clickedCentral) {
-      setSelectedCentral(clickedCentral);
-      setSelectedEdge(null);
-      setSelectedUser(null);
-      return;
-    }
-
-    if (clickedUser) {
-      setSelectedUser(clickedUser);
-      setSelectedEdge(null);
-      setSelectedCentral(null);
-      return;
-    }
-
-    // Clear selections and add user if not in edit mode
-    setSelectedUser(null);
-    setSelectedEdge(null);
-    setSelectedCentral(null);
-
-    if (editMode === "none") {
-      const newUser = {
-        id: `user-${Date.now()}`,
-        x: worldX,
-        y: worldY,
-        vx: (Math.random() - 0.5) * userSpeed[0],
-        vy: (Math.random() - 0.5) * userSpeed[0],
-        predictedPath: [],
-        assignedEdge: null,
-        assignedCentral: null,
-        latency: 0,
-        size: userSize[0],
-        manualConnection: false,
-      };
-      setUsers((prev) => [...prev, newUser]);
-    }
-  };
-
-  // Handle mouse down for dragging
-  const handleMouseDown = (event) => {
-    if (
-      event.button === 1 ||
-      (event.button === 0 && event.ctrlKey && editMode === "none")
-    ) {
-      setIsPanning(true);
-      setLastPanPoint({ x: event.clientX, y: event.clientY });
-      event.preventDefault();
-      return;
-    }
-
-    if (editMode !== "none") {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-
-      const rect = canvas.getBoundingClientRect();
-      const screenX = event.clientX - rect.left;
-      const screenY = event.clientY - rect.top;
-      const worldX = (screenX - panOffset.x) / zoomLevel;
-      const worldY = (screenY - panOffset.y) / zoomLevel;
-
-      // Check for user dragging first (if users edit mode is enabled)
-      if (editMode === "users" || editMode === "both") {
-        const clickedUser = users.find(
-          (user) =>
-            calculateDistance(worldX, worldY, user.x, user.y) < user.size + 5
-        );
-        if (clickedUser) {
-          setIsDraggingUser(true);
-          setDraggedUser(clickedUser);
-          setDragOffset({
-            x: worldX - clickedUser.x,
-            y: worldY - clickedUser.y,
-          });
-          event.preventDefault();
-          return;
-        }
+        
+        // Trigger optimization during simulation
+        setTimeout(() => optimizeReplicaPlacement(), 10);
       }
-
-      // Check for node dragging (if nodes edit mode is enabled)
-      if (editMode === "nodes" || editMode === "both") {
-        const clickedEdge = edgeNodes.find(
-          (edge) => calculateDistance(worldX, worldY, edge.x, edge.y) < 20
-        );
-        const clickedCentral = centralNodes.find(
-          (central) =>
-            calculateDistance(worldX, worldY, central.x, central.y) < 25
-        );
-
-        if (clickedEdge) {
-          setIsDraggingNode(true);
-          setDraggedNode({ type: "edge", node: clickedEdge });
-          setDragOffset({
-            x: worldX - clickedEdge.x,
-            y: worldY - clickedEdge.y,
-          });
-          event.preventDefault();
-          return;
-        }
-
-        if (clickedCentral) {
-          setIsDraggingNode(true);
-          setDraggedNode({ type: "central", node: clickedCentral });
-          setDragOffset({
-            x: worldX - clickedCentral.x,
-            y: worldY - clickedCentral.y,
-          });
-          event.preventDefault();
-          return;
-        }
-      }
-    }
-
-    setIsDragging(false);
-    handleCanvasClick(event);
-  };
-
-  const handleMouseMove = (event) => {
-    if (isPanning) {
-      const deltaX = event.clientX - lastPanPoint.x;
-      const deltaY = event.clientY - lastPanPoint.y;
-      setPanOffset((prev) => ({
-        x: prev.x + deltaX,
-        y: prev.y + deltaY,
-      }));
-      setLastPanPoint({ x: event.clientX, y: event.clientY });
-    } else if (isDraggingUser && draggedUser) {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-
-      const rect = canvas.getBoundingClientRect();
-      const screenX = event.clientX - rect.left;
-      const screenY = event.clientY - rect.top;
-      const worldX = (screenX - panOffset.x) / zoomLevel;
-      const worldY = (screenY - panOffset.y) / zoomLevel;
-
-      const newX = worldX - dragOffset.x;
-      const newY = worldY - dragOffset.y;
-
-      setUsers((prev) =>
-        prev.map((user) =>
-          user.id === draggedUser.id ? { ...user, x: newX, y: newY } : user
-        )
-      );
-
-      // Update selected user if it's the one being dragged
-      if (selectedUser && selectedUser.id === draggedUser.id) {
-        setSelectedUser((prev) => ({ ...prev, x: newX, y: newY }));
-      }
-    } else if (isDraggingNode && draggedNode) {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-
-      const rect = canvas.getBoundingClientRect();
-      const screenX = event.clientX - rect.left;
-      const screenY = event.clientY - rect.top;
-      const worldX = (screenX - panOffset.x) / zoomLevel;
-      const worldY = (screenY - panOffset.y) / zoomLevel;
-
-      const newX = worldX - dragOffset.x;
-      const newY = worldY - dragOffset.y;
-
-      if (draggedNode.type === "edge") {
-        setEdgeNodes((prev) =>
-          prev.map((edge) =>
-            edge.id === draggedNode.node.id
-              ? { ...edge, x: newX, y: newY }
-              : edge
-          )
-        );
-      } else if (draggedNode.type === "central") {
-        setCentralNodes((prev) =>
-          prev.map((central) =>
-            central.id === draggedNode.node.id
-              ? { ...central, x: newX, y: newY }
-              : central
-          )
-        );
-      }
-    } else {
-      setIsDragging(true);
-    }
-  };
-
-  const handleMouseUp = () => {
-    setIsPanning(false);
-    setIsDraggingNode(false);
-    setIsDraggingUser(false);
-    setDraggedNode(null);
-    setDraggedUser(null);
-    setTimeout(() => setIsDragging(false), 100);
-  };
-
-  // Zoom functions
-  const zoomIn = () => setZoomLevel((prev) => Math.min(prev * 1.2, 5));
-  const zoomOut = () => setZoomLevel((prev) => Math.max(prev / 1.2, 0.2));
-  const resetZoom = () => {
-    setZoomLevel(1);
-    setPanOffset({ x: 0, y: 0 });
-  };
-
-  const handleWheel = (event) => {
-    event.preventDefault();
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = event.clientX - rect.left;
-    const mouseY = event.clientY - rect.top;
-
-    const zoomFactor = event.deltaY > 0 ? 0.9 : 1.1;
-    const newZoom = Math.max(0.2, Math.min(5, zoomLevel * zoomFactor));
-
-    const zoomRatio = newZoom / zoomLevel;
-    const newPanX = mouseX - (mouseX - panOffset.x) * zoomRatio;
-    const newPanY = mouseY - (mouseY - panOffset.y) * zoomRatio;
-
-    setZoomLevel(newZoom);
-    setPanOffset({ x: newPanX, y: newPanY });
-  };
-
-  // Drawing function with zoom and pan support
-  const draw = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    ctx.save();
-    ctx.translate(panOffset.x, panOffset.y);
-    ctx.scale(zoomLevel, zoomLevel);
-
-    const visibleLeft = -panOffset.x / zoomLevel;
-    const visibleTop = -panOffset.y / zoomLevel;
-    const visibleRight = (canvas.width - panOffset.x) / zoomLevel;
-    const visibleBottom = (canvas.height - panOffset.y) / zoomLevel;
-
-    // Draw grid
-    ctx.strokeStyle = "#f0f0f0";
-    ctx.lineWidth = 1 / zoomLevel;
-    const gridSize = 50;
-    const startX = Math.floor(visibleLeft / gridSize) * gridSize;
-    const startY = Math.floor(visibleTop / gridSize) * gridSize;
-
-    for (let i = startX; i <= visibleRight + gridSize; i += gridSize) {
-      ctx.beginPath();
-      ctx.moveTo(i, visibleTop);
-      ctx.lineTo(i, visibleBottom);
-      ctx.stroke();
-    }
-    for (let i = startY; i <= visibleBottom + gridSize; i += gridSize) {
-      ctx.beginPath();
-      ctx.moveTo(visibleLeft, i);
-      ctx.lineTo(visibleRight, i);
-      ctx.stroke();
-    }
-
-    // Draw connections between central and edge nodes
-    centralNodes.forEach((central) => {
-      edgeNodes.forEach((edge) => {
-        ctx.strokeStyle = "rgba(99, 101, 241, 0.63)";
-        ctx.lineWidth = 2 / zoomLevel;
-        ctx.setLineDash([10 / zoomLevel, 5 / zoomLevel]);
-        ctx.beginPath();
-        ctx.moveTo(central.x, central.y);
-        ctx.lineTo(edge.x, edge.y);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      });
-    });
-
-    // Draw connections between edge nodes
-    for (let i = 0; i < edgeNodes.length; i++) {
-      for (let j = i + 1; j < edgeNodes.length; j++) {
-        const edgeA = edgeNodes[i];
-        const edgeB = edgeNodes[j];
-        ctx.strokeStyle = "rgba(16, 185, 129, 0.6)"; // subtle green
-        ctx.lineWidth = 1.5 / zoomLevel;
-        ctx.setLineDash([6 / zoomLevel, 4 / zoomLevel]);
-        ctx.beginPath();
-        ctx.moveTo(edgeA.x, edgeA.y);
-        ctx.lineTo(edgeB.x, edgeB.y);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-    }
-
-    // Draw central nodes
-    centralNodes.forEach((central) => {
-      if (
-        central.x + central.coverage < visibleLeft ||
-        central.x - central.coverage > visibleRight ||
-        central.y + central.coverage < visibleTop ||
-        central.y - central.coverage > visibleBottom
-      ) {
-        return;
-      }
-
-      // Coverage area
-      ctx.fillStyle = `rgba(99, 102, 241, ${
-        0.03 + central.currentLoad * 0.002
-      })`;
-      ctx.beginPath();
-      ctx.arc(central.x, central.y, central.coverage, 0, 2 * Math.PI);
-      ctx.fill();
-
-      // Central node
-      const isSelected = selectedCentral && selectedCentral.id === central.id;
-      ctx.fillStyle = isSelected
-        ? "#8b5cf6"
-        : central.currentLoad > 80
-        ? "#dc2626"
-        : central.currentLoad > 50
-        ? "#ea580c"
-        : "#6366f1";
-
-      // Draw diamond shape for central nodes
-      const size = isSelected ? 25 : 20;
-      ctx.beginPath();
-      ctx.moveTo(central.x, central.y - size);
-      ctx.lineTo(central.x + size, central.y);
-      ctx.lineTo(central.x, central.y + size);
-      ctx.lineTo(central.x - size, central.y);
-      ctx.closePath();
-      ctx.fill();
-
-      // Edit mode indicator for nodes
-      if ((editMode === "nodes" || editMode === "both") && !isSelected) {
-        ctx.strokeStyle = "rgba(139, 92, 246, 0.5)";
-        ctx.lineWidth = 2 / zoomLevel;
-        ctx.setLineDash([5 / zoomLevel, 5 / zoomLevel]);
-        ctx.beginPath();
-        ctx.arc(central.x, central.y, 30, 0, 2 * Math.PI);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-
-      // Selection ring
-      if (isSelected) {
-        ctx.strokeStyle = "#8b5cf6";
-        ctx.lineWidth = 3 / zoomLevel;
-        ctx.beginPath();
-        ctx.arc(central.x, central.y, 35, 0, 2 * Math.PI);
-        ctx.stroke();
-      }
-
-      // Label
-      const fontSize = Math.max(10, 14 / zoomLevel);
-      ctx.fillStyle = "#374151";
-      ctx.font = `${fontSize}px sans-serif`;
-      ctx.textAlign = "center";
-      ctx.fillText(central.id, central.x, central.y - 45);
-      ctx.fillText(
-        `${Math.round(central.currentLoad)}%`,
-        central.x,
-        central.y + 55
-      );
-    });
-
-    // Draw edge nodes
-    edgeNodes.forEach((edge) => {
-      if (
-        edge.x + edge.coverage < visibleLeft ||
-        edge.x - edge.coverage > visibleRight ||
-        edge.y + edge.coverage < visibleTop ||
-        edge.y - edge.coverage > visibleBottom
-      ) {
-        return;
-      }
-
-      // Coverage area
-      ctx.fillStyle = `rgba(59, 130, 246, ${0.05 + edge.currentLoad * 0.003})`;
-      ctx.beginPath();
-      ctx.arc(edge.x, edge.y, edge.coverage, 0, 2 * Math.PI);
-      ctx.fill();
-
-      // Edge node
-      const isSelected = selectedEdge && selectedEdge.id === edge.id;
-      ctx.fillStyle = isSelected
-        ? "#8b5cf6"
-        : edge.currentLoad > 80
-        ? "#ef4444"
-        : edge.currentLoad > 50
-        ? "#f59e0b"
-        : "#10b981";
-      ctx.beginPath();
-      ctx.arc(edge.x, edge.y, isSelected ? 20 : 15, 0, 2 * Math.PI);
-      ctx.fill();
-
-      // Edit mode indicator for nodes
-      if ((editMode === "nodes" || editMode === "both") && !isSelected) {
-        ctx.strokeStyle = "rgba(139, 92, 246, 0.5)";
-        ctx.lineWidth = 2 / zoomLevel;
-        ctx.setLineDash([5 / zoomLevel, 5 / zoomLevel]);
-        ctx.beginPath();
-        ctx.arc(edge.x, edge.y, 25, 0, 2 * Math.PI);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-
-      // Selection ring
-      if (isSelected) {
-        ctx.strokeStyle = "#8b5cf6";
-        ctx.lineWidth = 3 / zoomLevel;
-        ctx.beginPath();
-        ctx.arc(edge.x, edge.y, 25, 0, 2 * Math.PI);
-        ctx.stroke();
-      }
-
-      // Label
-      const fontSize = Math.max(10, 14 / zoomLevel);
-      ctx.fillStyle = "#374151";
-      ctx.font = `${fontSize}px sans-serif`;
-      ctx.textAlign = "center";
-      ctx.fillText(edge.id, edge.x, edge.y - 35);
-      ctx.fillText(`${Math.round(edge.currentLoad)}%`, edge.x, edge.y + 45);
-    });
-
-    // Draw users and their predicted paths
-    users.forEach((user) => {
-      if (
-        user.x < visibleLeft - 50 ||
-        user.x > visibleRight + 50 ||
-        user.y < visibleTop - 50 ||
-        user.y > visibleBottom + 50
-      ) {
-        return;
-      }
-
-      // Predicted path
-      if (predictionEnabled && user.predictedPath.length > 0) {
-        ctx.strokeStyle = "rgba(168, 85, 247, 0.6)";
-        ctx.lineWidth = 2 / zoomLevel;
-        ctx.setLineDash([5 / zoomLevel, 5 / zoomLevel]);
-        ctx.beginPath();
-        ctx.moveTo(user.x, user.y);
-        user.predictedPath.forEach((point) => {
-          ctx.lineTo(point.x, point.y);
-        });
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-
-      // Connection to assigned edge (different style for manual connections)
-      if (user.assignedEdge) {
-        const assignedEdge = edgeNodes.find(
-          (edge) => edge.id === user.assignedEdge
-        );
-        if (assignedEdge) {
-          ctx.strokeStyle = user.manualConnection
-            ? "rgba(34, 197, 94, 0.8)"
-            : "rgba(34, 197, 94, 0.4)";
-          ctx.lineWidth = user.manualConnection ? 2 / zoomLevel : 1 / zoomLevel;
-          if (user.manualConnection) {
-            ctx.setLineDash([]);
-          }
-          ctx.beginPath();
-          ctx.moveTo(user.x, user.y);
-          ctx.lineTo(assignedEdge.x, assignedEdge.y);
-          ctx.stroke();
-        }
-      }
-
-      // Connection to assigned central node (different style for manual connections)
-      if (user.assignedCentral) {
-        const assignedCentral = centralNodes.find(
-          (central) => central.id === user.assignedCentral
-        );
-        if (assignedCentral) {
-          ctx.strokeStyle = user.manualConnection
-            ? "rgba(99, 102,241, 0.8)"
-            : "rgba(99, 102,241, 0.4)";
-          ctx.lineWidth = user.manualConnection ? 2 / zoomLevel : 1 / zoomLevel;
-          if (user.manualConnection) {
-            ctx.setLineDash([]);
-          }
-          ctx.beginPath();
-          ctx.moveTo(user.x, user.y);
-          ctx.lineTo(assignedCentral.x, assignedCentral.y);
-          ctx.stroke();
-        }
-      }
-
-      // User
-      const isSelected = selectedUser && selectedUser.id === user.id;
-      ctx.fillStyle = isSelected
-        ? "#8b5cf6"
-        : user.manualConnection
-        ? "#f59e0b"
-        : "#3b82f6";
-      ctx.beginPath();
-      ctx.arc(
-        user.x,
-        user.y,
-        isSelected ? user.size + 2 : user.size,
-        0,
-        2 * Math.PI
-      );
-      ctx.fill();
-
-      // Manual connection indicator
-      if (user.manualConnection) {
-        ctx.strokeStyle = "#f59e0b";
-        ctx.lineWidth = 2 / zoomLevel;
-        ctx.beginPath();
-        ctx.arc(user.x, user.y, user.size + 4, 0, 2 * Math.PI);
-        ctx.stroke();
-      }
-
-      // Edit mode indicator for users
-      if ((editMode === "users" || editMode === "both") && !isSelected) {
-        ctx.strokeStyle = "rgba(139, 92, 246, 0.5)";
-        ctx.lineWidth = 2 / zoomLevel;
-        ctx.setLineDash([3 / zoomLevel, 3 / zoomLevel]);
-        ctx.beginPath();
-        ctx.arc(user.x, user.y, user.size + 8, 0, 2 * Math.PI);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-
-      // Selection ring
-      if (isSelected) {
-        ctx.strokeStyle = "#8b5cf6";
-        ctx.lineWidth = 2 / zoomLevel;
-        ctx.beginPath();
-        ctx.arc(user.x, user.y, user.size + 6, 0, 2 * Math.PI);
-        ctx.stroke();
-      }
-
-      // Latency indicator
-      const latencyColor =
-        user.latency > 50
-          ? "#ef4444"
-          : user.latency > 25
-          ? "#f59e0b"
-          : "#10b981";
-      ctx.fillStyle = latencyColor;
-      ctx.beginPath();
-      ctx.arc(user.x, user.y, 3, 0, 2 * Math.PI);
-      ctx.fill();
-
-      // User ID for selected user
-      if (isSelected) {
-        const fontSize = Math.max(8, 12 / zoomLevel);
-        ctx.fillStyle = "#374151";
-        ctx.font = `${fontSize}px sans-serif`;
-        ctx.textAlign = "center";
-        ctx.fillText(user.id, user.x, user.y - user.size - 10);
-      }
-    });
-
-    ctx.restore();
-  }, [
-    users,
-    edgeNodes,
-    centralNodes,
-    predictionEnabled,
-    selectedUser,
-    selectedEdge,
-    selectedCentral,
-    zoomLevel,
-    panOffset,
-    editMode,
-  ]);
-
-  // Animation loop
-  useEffect(() => {
-    const interval = setInterval(() => {
-      simulationStep();
-      optimizeReplicaPlacement();
+      
+      // Trigger canvas redraw
       draw();
     }, 100);
 
     return () => clearInterval(interval);
-  }, [simulationStep, optimizeReplicaPlacement, draw]);
+  }, [isSimulating, simulationSpeed, draw, optimizeReplicaPlacement]);
 
-  useEffect(() => {
-    const handleResize = () => draw();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, [draw]);
 
-  useEffect(() => {
-    draw();
-  }, [draw]);
 
   // Container timeout management - reset warm state after 30 seconds of inactivity
   useEffect(() => {
@@ -1141,6 +798,242 @@ export default function Component() {
 
     return () => clearInterval(interval);
   }, []);
+
+
+
+  // Find nearest node helper function
+  const findNearestNode = (nodes, user) => {
+    if (nodes.length === 0) return null;
+    return nodes.reduce((nearest, node) => {
+      const distanceToNode = calculateDistance(user.x, user.y, node.x, node.y);
+      const distanceToNearest = nearest
+        ? calculateDistance(user.x, user.y, nearest.x, nearest.y)
+        : Number.POSITIVE_INFINITY;
+      return distanceToNode < distanceToNearest ? node : nearest;
+    });
+  };
+
+  // Zoom functions
+  const zoomIn = () => {
+    setZoomLevel(prev => Math.min(3, prev + 0.2));
+  };
+
+  const zoomOut = () => {
+    setZoomLevel(prev => Math.max(0.5, prev - 0.2));
+  };
+
+  const resetZoom = () => {
+    setZoomLevel(1);
+    setPanOffset({ x: 0, y: 0 });
+  };
+
+  // useEffect hooks for drawing - placed after draw function definition
+  useEffect(() => {
+    const handleResize = () => draw();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [draw]);
+
+  // Trigger draw when state changes
+  useEffect(() => {
+    draw();
+  }, [users, edgeNodes, centralNodes, selectedUser, selectedEdge, selectedCentral, 
+      predictionEnabled, userSize, zoomLevel, panOffset, draw]);
+
+
+
+  // Canvas event handlers
+  const handleCanvasClick = (e) => {
+    if (isDraggingNode || isDraggingUser || isPanning) return;
+
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = (e.clientX - rect.left - panOffset.x) / zoomLevel;
+    const y = (e.clientY - rect.top - panOffset.y) / zoomLevel;
+
+    // Check if clicking on existing elements first
+    let clickedSomething = false;
+
+    // Check users
+    for (const user of users) {
+      const distance = calculateDistance(x, y, user.x, user.y);
+      if (distance <= userSize[0]) {
+        setSelectedUser(selectedUser && selectedUser.id === user.id ? null : user);
+        setSelectedEdge(null);
+        setSelectedCentral(null);
+        clickedSomething = true;
+        break;
+      }
+    }
+
+    // Check edge nodes
+    if (!clickedSomething) {
+      for (const edge of edgeNodes) {
+        const distance = calculateDistance(x, y, edge.x, edge.y);
+        if (distance <= 15) {
+          setSelectedEdge(selectedEdge && selectedEdge.id === edge.id ? null : edge);
+          setSelectedUser(null);
+          setSelectedCentral(null);
+          clickedSomething = true;
+          break;
+        }
+      }
+    }
+
+    // Check central nodes
+    if (!clickedSomething) {
+      for (const central of centralNodes) {
+        if (x >= central.x - 12 && x <= central.x + 12 && 
+            y >= central.y - 12 && y <= central.y + 12) {
+          setSelectedCentral(selectedCentral && selectedCentral.id === central.id ? null : central);
+          setSelectedUser(null);
+          setSelectedEdge(null);
+          clickedSomething = true;
+          break;
+        }
+      }
+    }
+
+    // If nothing was clicked and we're not in edit mode, add a new user
+    if (!clickedSomething && editMode === "none") {
+      const newUser = {
+        id: `user-${users.length + 1}`,
+        x: x,
+        y: y,
+        vx: (Math.random() - 0.5) * userSpeed[0],
+        vy: (Math.random() - 0.5) * userSpeed[0],
+        assignedEdge: null,
+        assignedCentral: null,
+        manualConnection: false,
+        latency: 500, // FIXED initial latency for new users
+        predictedPath: [],
+      };
+      setUsers(prev => [...prev, newUser]);
+    }
+
+    // Clear selections if clicking empty space
+    if (!clickedSomething && editMode !== "none") {
+      setSelectedUser(null);
+      setSelectedEdge(null);
+      setSelectedCentral(null);
+    }
+  };
+
+  const handleMouseDown = (e) => {
+    if (e.ctrlKey || e.metaKey) {
+      setIsPanning(true);
+      setLastPanPoint({ x: e.clientX, y: e.clientY });
+      return;
+    }
+
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = (e.clientX - rect.left - panOffset.x) / zoomLevel;
+    const y = (e.clientY - rect.top - panOffset.y) / zoomLevel;
+
+    // Check for draggable elements
+    if (editMode === "users" || editMode === "both") {
+      for (const user of users) {
+        const distance = calculateDistance(x, y, user.x, user.y);
+        if (distance <= userSize[0]) {
+          setIsDraggingUser(true);
+          setDraggedUser(user);
+          setDragOffset({ x: x - user.x, y: y - user.y });
+          return;
+        }
+      }
+    }
+
+    if (editMode === "nodes" || editMode === "both") {
+      // Check edge nodes
+      for (const edge of edgeNodes) {
+        const distance = calculateDistance(x, y, edge.x, edge.y);
+        if (distance <= 15) {
+          setIsDraggingNode(true);
+          setDraggedNode({ ...edge, type: "edge" });
+          setDragOffset({ x: x - edge.x, y: y - edge.y });
+          return;
+        }
+      }
+
+      // Check central nodes
+      for (const central of centralNodes) {
+        if (x >= central.x - 12 && x <= central.x + 12 && 
+            y >= central.y - 12 && y <= central.y + 12) {
+          setIsDraggingNode(true);
+          setDraggedNode({ ...central, type: "central" });
+          setDragOffset({ x: x - central.x, y: y - central.y });
+          return;
+        }
+      }
+    }
+  };
+
+  const handleMouseMove = (e) => {
+    if (isPanning) {
+      const deltaX = e.clientX - lastPanPoint.x;
+      const deltaY = e.clientY - lastPanPoint.y;
+      setPanOffset(prev => ({ x: prev.x + deltaX, y: prev.y + deltaY }));
+      setLastPanPoint({ x: e.clientX, y: e.clientY });
+      return;
+    }
+
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = (e.clientX - rect.left - panOffset.x) / zoomLevel;
+    const y = (e.clientY - rect.top - panOffset.y) / zoomLevel;
+
+    if (isDraggingUser && draggedUser) {
+      const newX = x - dragOffset.x;
+      const newY = y - dragOffset.y;
+      
+      setUsers(prev => prev.map(user => 
+        user.id === draggedUser.id 
+          ? { ...user, x: Math.max(10, Math.min(window.innerWidth - 10, newX)), 
+                       y: Math.max(10, Math.min(window.innerHeight - 10, newY)) }
+          : user
+      ));
+    }
+
+    if (isDraggingNode && draggedNode) {
+      const newX = x - dragOffset.x;
+      const newY = y - dragOffset.y;
+      
+      if (draggedNode.type === "edge") {
+        setEdgeNodes(prev => prev.map(edge => 
+          edge.id === draggedNode.id 
+            ? { ...edge, x: Math.max(10, Math.min(window.innerWidth - 10, newX)), 
+                         y: Math.max(10, Math.min(window.innerHeight - 10, newY)) }
+            : edge
+        ));
+      } else if (draggedNode.type === "central") {
+        setCentralNodes(prev => prev.map(central => 
+          central.id === draggedNode.id 
+            ? { ...central, x: Math.max(10, Math.min(window.innerWidth - 10, newX)), 
+                           y: Math.max(10, Math.min(window.innerHeight - 10, newY)) }
+            : central
+        ));
+      }
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsPanning(false);
+    setIsDraggingUser(false);
+    setIsDraggingNode(false);
+    setDraggedUser(null);
+    setDraggedNode(null);
+  };
+
+  const handleWheel = (e) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.1 : 0.1;
+    setZoomLevel(prev => Math.max(0.5, Math.min(3, prev + delta)));
+  };
+
+  // Simulation step function
+  const simulationStep = () => {
+    if (isSimulating) {
+      optimizeReplicaPlacement();
+    }
+  };
 
   const resetSimulation = () => {
     clearEverything();
